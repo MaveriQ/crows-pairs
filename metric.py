@@ -1,4 +1,4 @@
-import os
+import pickle
 import csv
 import json
 import math
@@ -130,8 +130,8 @@ def mask_unigram(data, lm, n=1):
     N = len(template1)  # num. of tokens that can be masked
     mask_id = tokenizer.convert_tokens_to_ids(mask_token)
     
-    sent1_log_probs = 0.
-    sent2_log_probs = 0.
+    sent1_log_probs = {}#0.
+    sent2_log_probs = {}#0.
     total_masked_tokens = 0
 
     # skipping CLS and SEP tokens, they'll never be masked
@@ -146,13 +146,15 @@ def mask_unigram(data, lm, n=1):
         score1 = get_log_prob_unigram(sent1_masked_token_ids, sent1_token_ids, template1[i], lm)
         score2 = get_log_prob_unigram(sent2_masked_token_ids, sent2_token_ids, template2[i], lm)
 
-        sent1_log_probs += score1.item()
-        sent2_log_probs += score2.item()
+        sent1_log_probs[template1[i]] = score1.item() # += score1.item()
+        sent2_log_probs[template2[i]] = score2.item() # += score2.item()
 
     score = {}
     # average over iterations
-    score["sent1_score"] = sent1_log_probs
-    score["sent2_score"] = sent2_log_probs
+    score["sent1_token_scores"] = sent1_log_probs
+    score["sent2_token_scores"] = sent2_log_probs
+    score["sent1_score"] = sum(sent1_log_probs.values())
+    score["sent2_score"] = sum(sent2_log_probs.values())
 
     return score
 
@@ -171,6 +173,7 @@ def evaluate(args):
 
     # load data into panda DataFrame
     df_data = read_data(args.input_file)
+    # df_data = df_data[:10]
 
     # supported masked language models
     if args.lm_model == "bert":
@@ -207,6 +210,7 @@ def evaluate(args):
     # each row in the dataframe has the sentid and score for pro and anti stereo.
     df_score = pd.DataFrame(columns=['sent_more', 'sent_less', 
                                      'sent_more_score', 'sent_less_score',
+                                     'sent_more_token_scores', 'sent_less_token_scores',
                                      'score', 'stereo_antistereo', 'bias_type'])
 
 
@@ -222,8 +226,8 @@ def evaluate(args):
             bias = data['bias_type']
             score = mask_unigram(data, lm)
 
-            for stype in score.keys():
-                score[stype] = round(score[stype], 3)
+            # for stype in score.keys():
+            #     score[stype] = round(score[stype], 3)
 
             N += 1
             pair_score = 0
@@ -248,23 +252,29 @@ def evaluate(args):
                 sent_less = data['sent2']
                 sent_more_score = score['sent1_score']
                 sent_less_score = score['sent2_score']
+                sent_more_token_scores = score['sent1_token_scores']
+                sent_less_token_scores = score['sent2_token_scores']
             else:
                 sent_more = data['sent2']
                 sent_less = data['sent1']
                 sent_more_score = score['sent2_score']
                 sent_less_score = score['sent1_score']
+                sent_more_token_scores = score['sent2_token_scores']
+                sent_less_token_scores = score['sent1_token_scores']
 
             df_score = df_score.append({'sent_more': sent_more,
                                         'sent_less': sent_less,
                                         'sent_more_score': sent_more_score,
                                         'sent_less_score': sent_less_score,
+                                        'sent_more_token_scores' : sent_more_token_scores,
+                                        'sent_less_token_scores' : sent_less_token_scores,
                                         'score': pair_score,
                                         'stereo_antistereo': direction,
                                         'bias_type': bias
                                       }, ignore_index=True)
 
 
-    df_score.to_csv(args.output_file)
+    pickle.dump(df_score,open(args.output_file,'wb'))
     print('=' * 100)
     print('Total examples:', N)
     print('Metric score:', round((stereo_score + antistereo_score) / N * 100, 2))
@@ -280,6 +290,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--input_file", type=str, help="path to input file")
 parser.add_argument("--lm_model", type=str, help="pretrained LM model to use (options: bert, roberta, albert)")
 parser.add_argument("--output_file", type=str, help="path to output file with sentence scores")
-
-args = parser.parse_args()
+tmp_args = "--lm_model bert --output_file test.out --input_file ./data/crows_pairs_anonymized.csv".split()
+args = parser.parse_args(tmp_args)
 evaluate(args)
