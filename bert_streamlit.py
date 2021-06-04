@@ -8,9 +8,11 @@ import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
 import spacy
 import pdb
+import difflib
 
 st.set_page_config(layout="wide")
 st.title('My first app')
+
 @st.cache
 def setup():
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -18,33 +20,50 @@ def setup():
     return df,tokenizer
 
 @st.cache
-def get_viz(df,row=0):
-    token_ids_more = tokenizer.encode(df.iloc[row].sent_more)
-    token_ids_less = tokenizer.encode(df.iloc[row].sent_less)
-    tokens_more = [tokenizer.ids_to_tokens[id] for id in token_ids_more]
-    tokens_less = [tokenizer.ids_to_tokens[id] for id in token_ids_less]
-    scores_more = df.iloc[row].sent_more_token_scores
-    scores_less = df.iloc[row].sent_less_token_scores
-    bias_tokens = []
-    for a,b in zip(token_ids_more,token_ids_less):
-        bias_tokens.append(a!=b)
-    data = []
-    for i in range(1,len(tokens_more)-1):
-        record = (tokens_more[i],scores_more.get(i,-np.inf),tokens_less[i],scores_less.get(i,-np.inf),bias_tokens[i])
-        data.append(record)
-    df = pd.DataFrame.from_records(data,columns=['tokens_more','score_more','tokens_less','score_less','bias_tokens'])
-    df = df.assign(prob_more=lambda x: np.exp(x.score_more),
-                   prob_less=lambda x: np.exp(x.score_less),
-                   prob_diff=lambda x: x.prob_more-x.prob_less,
-                   prob_diff_scaled=lambda x: MinMaxScaler().fit_transform(x.prob_diff.values.reshape(-1, 1)))
-    return df.drop('bias_tokens',axis=1,inplace=False)
+def get_viz(df,row):
+    seq1 = tokenizer.encode(df.iloc[row].sent_more)
+    seq2 = tokenizer.encode(df.iloc[row].sent_less)
+    seq1 = [str(x) for x in seq1]
+    seq2 = [str(x) for x in seq2]
+    dataframes=[]
+
+    matcher = difflib.SequenceMatcher(None, seq1, seq2)
+    template1, template2 = [], []
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        a=[tokenizer.ids_to_tokens[int(x)] for x in seq1[i1:i2]]
+        b=[tokenizer.ids_to_tokens[int(x)] for x in seq2[j1:j2]]
+        c=[df.iloc[row].sent_more_token_scores.get(x,-np.inf) for x in range(i1,i2)]
+        d=[df.iloc[row].sent_less_token_scores.get(x,-np.inf) for x in range(j1,j2)]
+        e=[0]*len(a)
+        if tag!='equal':
+            a=tokenizer.decode([int(x) for x in seq1[i1:i2]])
+            b=tokenizer.decode([int(x) for x in seq2[j1:j2]])
+            c=[-np.inf]
+            d=[-np.inf]
+            e=[1]*len(c)
+        data = {'token_more':a,
+                'token_less':b,
+                'score_more':c,
+                'score_less':d,
+                'bias_tokens':e
+               }
+        dataframes.append(pd.DataFrame.from_dict(data))
+        
+    df2 = pd.concat(dataframes).reset_index(drop=True)
+    df2 = df2.assign(prob_more=lambda x: np.exp(x.score_more),
+                       prob_less=lambda x: np.exp(x.score_less),
+                       prob_diff=lambda x: x.prob_more-x.prob_less,
+                       prob_diff_scaled=lambda x: MinMaxScaler().fit_transform(x.prob_diff.values.reshape(-1, 1)))
+    df2 = df2.iloc[1:-1,:] #removing CLS and SEP tokens
+    return df2.drop('bias_tokens',axis=1,inplace=False)
 
 
 def highlight_bias_token(s):
     '''
     highlight the bias token.
     '''
-    val = ['background-color: yellow']*df.shape[1] if s.score_more==-np.inf else ['']*df.shape[1]
+    val = ['background-color: yellow']*len(s) if s.score_more==-np.inf else ['']*len(s)
     return val
 
 df,tokenizer = setup()
@@ -56,12 +75,6 @@ df_viz = get_viz(df,row)
 green = sns.light_palette("green", as_cmap=True)
 rocket = sns.color_palette("rocket", as_cmap=True)
 lightblue = sns.color_palette("light:b", as_cmap=True)
-
-# st.dataframe(df_viz.style.apply(highlight_bias_token,axis=1)\
-#             .background_gradient(cmap=lightblue,subset=['prob_diff'])\
-#             .background_gradient(cmap=lightblue,subset=['prob_diff_scaled']).hide_columns(['bias_tokens']))
-
-
 
 columns = st.multiselect('Select Columns to hide',df_viz.columns)
 
