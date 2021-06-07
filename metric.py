@@ -285,11 +285,11 @@ def evaluate(args):
     print('=' * 100)
     print()
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--input_file", type=str, help="path to input file")
-parser.add_argument("--lm_model", type=str, help="pretrained LM model to use (options: bert, roberta, albert)")
-parser.add_argument("--output_file", type=str, help="path to output file with sentence scores")
-tmp_args = "--lm_model bert --output_file test.out --input_file ./data/crows_pairs_anonymized.csv".split()
-args = parser.parse_args(tmp_args)
-evaluate(args)
+if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_file", type=str, help="path to input file")
+    parser.add_argument("--lm_model", type=str, help="pretrained LM model to use (options: bert, roberta, albert)")
+    parser.add_argument("--output_file", type=str, help="path to output file with sentence scores")
+    tmp_args = "--lm_model bert --output_file test.out --input_file ./data/crows_pairs_anonymized.csv".split()
+    args = parser.parse_args(tmp_args)
+    evaluate(args)
